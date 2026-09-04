@@ -1,0 +1,438 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPSALA 3D - Gestión de Stock con Escáner</title>
+    <!-- Librería para escaneo de código de barras por cámara -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        :root {
+            --azul-glaciar: #0648A7;
+            --azul-cian: #39B1DC;
+            --negro-carbono: #040407;
+            --blanco-puro: #FFFFFF;
+        }
+
+
+        body { font-family: 'Helvetica', 'Roboto', 'Arial', sans-serif; background-color: var(--blanco-puro); color: var(--negro-carbono); margin: 0; padding: 0; }
+        h1, h2 { font-family: 'Impact', sans-serif; text-transform: uppercase; letter-spacing: 1px; }
+        header { background-color: var(--azul-glaciar); color: var(--blanco-puro); padding: 20px; text-align: center; display: flex; justify-content: space-between; align-items: center; }
+        .container { max-width: 1100px; margin: 20px auto; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ccc; }
+        th { background-color: var(--azul-glaciar); color: var(--blanco-puro); font-family: 'Impact', sans-serif; }
+        .btn { background-color: var(--azul-cian); color: var(--blanco-puro); border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 4px; }
+        .btn:hover { background-color: #2a8ab0; }
+        .btn-admin { display: none; margin-right: 5px; padding: 5px 10px; font-size: 0.9em; }
+        #login-section { background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin-bottom: 20px; text-align: right; }
+        
+        /* SECCIÓN AGREGAR PRODUCTO */
+        #add-product-section { background-color: #f9f9f9; padding: 20px; border-radius: 5px; margin-bottom: 20px; border-left: 5px solid var(--azul-cian); display: none; }
+        .form-group { margin-bottom: 10px; display: inline-block; margin-right: 15px; }
+        .form-group label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 5px; }
+        input, select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 160px; }
+        
+        /* SECCIÓN ESCÁNER (Solo Admin) */
+        #scanner-section { background-color: #f0f8ff; padding: 20px; border-radius: 5px; margin-bottom: 20px; border-left: 5px solid var(--azul-glaciar); display: none; text-align: center; }
+        #reader { width: 100%; max-width: 400px; margin: 0 auto; }
+
+
+        /* FILTROS */
+        #filtros-section { margin-top: 15px; margin-bottom: 15px; }
+        .btn-filtro { background-color: var(--blanco-puro); color: var(--azul-glaciar); border: 2px solid var(--azul-glaciar); padding: 8px 16px; margin-right: 10px; margin-bottom: 10px; cursor: pointer; font-weight: bold; border-radius: 4px; font-family: 'Helvetica', sans-serif; transition: all 0.2s ease; }
+        .btn-filtro:hover, .btn-filtro.active { background-color: var(--azul-glaciar); color: var(--blanco-puro); }
+
+
+        .loading { text-align: center; font-style: italic; color: #666; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+
+    <header>
+        <h1 style="margin:0;">UPSALA 3D - INVENTARIO</h1>
+        <button id="loginToggleBtn" class="btn" onclick="toggleLogin()">Acceso Admin</button>
+    </header>
+
+
+    <div class="container">
+        
+        <div id="login-section" style="display:none;">
+            <input type="text" id="user" placeholder="Usuario" style="width: auto;">
+            <input type="password" id="pass" placeholder="Contraseña" style="width: auto;">
+            <button class="btn" onclick="checkLogin()">Ingresar</button>
+            <p id="error-msg" style="color: red; display: none;">Credenciales incorrectas.</p>
+        </div>
+
+
+        <!-- ESCÁNER DE CÁMARA (Solo Admin) -->
+        <div id="scanner-section" class="admin-panel" style="display:none;">
+            <h2>Escáner de Código de Barras</h2>
+            <p>Selecciona la acción y enfoca el código de barras con la cámara:</p>
+            <div style="margin-bottom: 15px;">
+                <label><input type="radio" name="scan-action" value="1" checked> Ingresar Stock (+1)</label>
+                <label style="margin-left: 20px;"><input type="radio" name="scan-action" value="-1"> Vender / Egreso (-1)</label>
+            </div>
+            <button class="btn" onclick="iniciarScanner()">Activar Cámara</button>
+            <button class="btn" style="background-color: #e74c3c; display:none;" id="btn-detener" onclick="detenerScanner()">Apagar Cámara</button>
+            <div id="reader" style="margin-top: 15px;"></div>
+            <p id="scan-result" style="font-weight: bold; margin-top: 10px; color: var(--azul-glaciar);"></p>
+        </div>
+
+
+        <!-- FORMULARIO ALTA DE PRODUCTOS -->
+        <div id="add-product-section" class="admin-panel" style="display:none;">
+            <h2>Ingresar Nuevo Producto</h2>
+            <div class="form-group">
+                <label>Código de Barras (ID)</label>
+                <input type="text" id="new-id" placeholder="Ej: 779123456789">
+            </div>
+            <div class="form-group">
+                <label>Categoría</label>
+                <select id="new-categoria" style="width: 170px;">
+                    <option value="">Seleccionar...</option>
+                    <option value="Filamento">Filamento</option>
+                    <option value="Polímero">Polímero</option>
+                    <option value="Adhesivo">Adhesivo</option>
+                    <option value="Repuesto">Repuesto</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Producto / Marca</label>
+                <input type="text" id="new-producto" placeholder="Ej: PLA+ Grilon3">
+            </div>
+            <div class="form-group">
+                <label>Color / Variante</label>
+                <input type="text" id="new-color" placeholder="Ej: Azul Glaciar">
+            </div>
+            <div class="form-group">
+                <label>Stock Inicial</label>
+                <input type="number" id="new-stock" placeholder="Ej: 10" style="width: 90px;">
+            </div>
+            <div class="form-group">
+                <label>Precio Compra ($)</label>
+                <input type="number" id="new-pcompra" placeholder="0.00" style="width: 100px;">
+            </div>
+            <div class="form-group">
+                <label>Precio Venta ($)</label>
+                <input type="number" id="new-pventa" placeholder="0.00" style="width: 100px;">
+            </div>
+            <div style="margin-top: 10px;">
+                <button id="btn-add-prod" class="btn" onclick="agregarNuevoProducto()">+ Guardar Producto</button>
+            </div>
+        </div>
+
+
+        <h2>Catálogo de Disponibilidad</h2>
+        
+        <div id="filtros-section" style="display:none;"></div>
+
+
+        <div id="loading" class="loading">Sincronizando con base de datos de Upsala3D...</div>
+        
+        <table id="stockTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Código (ID)</th>
+                    <th>Categoría</th>
+                    <th>Producto</th>
+                    <th>Color</th>
+                    <th>Stock Actual</th>
+                    <th>Precio Venta</th>
+                    <th class="admin-col" style="display:none;">Precio Compra</th>
+                    <th class="admin-col" style="display:none;">Acciones Stock</th>
+                </tr>
+            </thead>
+            <tbody id="tabla-body">
+            </tbody>
+        </table>
+    </div>
+
+
+    <script>
+        const API_URL = "https://script.google.com/macros/s/AKfycbzcG4MSVzsmR8rt-KNNimbOM_qTs3FtndaRJLhdUgm2xMIOApJXhIGhbAWYqN8MsEFLHw/exec"; 
+        
+        let modoAdmin = false;
+        let todosLosProductos = []; 
+        let html5QrCode = null;
+
+
+        window.onload = function() {
+            cargarDatos();
+        };
+
+
+        function cargarDatos() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('stockTable').style.display = 'none';
+            document.getElementById('filtros-section').style.display = 'none';
+            
+            fetch(API_URL)
+                .then(response => response.json())
+                .then(data => {
+                    todosLosProductos = data;
+                    generarFiltros(data);
+                    renderizarTabla(data);
+                })
+                .catch(error => {
+                    document.getElementById('loading').innerText = "Error al conectar con la base de datos.";
+                    console.error("Error:", error);
+                });
+        }
+
+
+        function generarFiltros(productos) {
+            const container = document.getElementById('filtros-section');
+            container.innerHTML = ''; 
+            
+            const categoriasUnicas = [...new Set(productos.map(p => p.Categoría))].filter(c => c && c.trim() !== '');
+
+
+            if (categoriasUnicas.length === 0) return;
+
+
+            const btnTodos = document.createElement('button');
+            btnTodos.className = 'btn-filtro active';
+            btnTodos.innerText = 'Todos';
+            btnTodos.onclick = () => aplicarFiltro('Todos', btnTodos);
+            container.appendChild(btnTodos);
+
+
+            categoriasUnicas.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = 'btn-filtro';
+                btn.innerText = cat;
+                btn.onclick = () => aplicarFiltro(cat, btn);
+                container.appendChild(btn);
+            });
+
+
+            container.style.display = 'block';
+        }
+
+
+        function aplicarFiltro(categoria, btnElement) {
+            document.querySelectorAll('.btn-filtro').forEach(b => b.classList.remove('active'));
+            if(btnElement) btnElement.classList.add('active');
+
+
+            if(categoria === 'Todos') {
+                renderizarTabla(todosLosProductos);
+            } else {
+                const productosFiltrados = todosLosProductos.filter(p => p.Categoría === categoria);
+                renderizarTabla(productosFiltrados);
+            }
+        }
+
+
+        function renderizarTabla(productos) {
+            const tbody = document.getElementById('tabla-body');
+            tbody.innerHTML = ''; 
+
+
+            productos.forEach(prod => {
+                const tr = document.createElement('tr');
+                let precioVentaFmt = prod.PrecioVenta ? `$${Number(prod.PrecioVenta).toLocaleString('es-AR')}` : '-';
+                let precioCompraFmt = prod.PrecioCompra ? `$${Number(prod.PrecioCompra).toLocaleString('es-AR')}` : '-';
+
+
+                tr.innerHTML = `
+                    <td><code>${prod.ID || ''}</code></td>
+                    <td>${prod.Categoría || ''}</td>
+                    <td>${prod.Producto || ''}</td>
+                    <td>${prod.Color || 'N/A'}</td>
+                    <td><span id="stock-${prod.ID}" style="font-weight:bold;">${prod.Stock || 0}</span> un/kg</td>
+                    <td>${precioVentaFmt}</td>
+                    <td class="admin-col" style="display: ${modoAdmin ? 'table-cell' : 'none'}; color: #555;">
+                        ${precioCompraFmt}
+                    </td>
+                    <td class="admin-col" style="display: ${modoAdmin ? 'table-cell' : 'none'};">
+                        <button class="btn btn-admin" style="display: ${modoAdmin ? 'inline-block' : 'none'};" onclick="modificarStock('${prod.ID}', 1)">+1</button>
+                        <button class="btn btn-admin" style="display: ${modoAdmin ? 'inline-block' : 'none'}; background-color: #e74c3c;" onclick="modificarStock('${prod.ID}', -1)">-1</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('stockTable').style.display = 'table';
+        }
+
+
+        function toggleLogin() {
+            const loginSec = document.getElementById('login-section');
+            loginSec.style.display = loginSec.style.display === 'none' ? 'block' : 'none';
+        }
+
+
+        function checkLogin() {
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            
+            if(u === 'FRAN' && p === 'BEBE') {
+                modoAdmin = true;
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('loginToggleBtn').innerText = 'Sesión Iniciada (Fran)';
+                
+                document.querySelectorAll('.admin-panel').forEach(el => el.style.display = 'block');
+                document.querySelectorAll('.admin-col').forEach(el => el.style.display = 'table-cell');
+                document.querySelectorAll('.btn-admin').forEach(el => el.style.display = 'inline-block');
+            } else {
+                document.getElementById('error-msg').style.display = 'block';
+            }
+        }
+
+
+        // --- FUNCIONES DE CÁMARA Y ESCÁNER ---
+        function iniciarScanner() {
+            document.querySelector('#scanner-section .btn').style.display = 'none';
+            document.getElementById('btn-detener').style.display = 'inline-block';
+            
+            html5QrCode = new Html5Qrcode("reader");
+            html5QrCode.start(
+                { facingMode: "environment" }, // Usa la cámara trasera del celular
+                { fps: 10, qrbox: { width: 250, height: 100 } },
+                (decodedText, decodedResult) => {
+                    // CÓDIGO ESCANEADO EXITOSAMENTE
+                    let accion = document.querySelector('input[name="scan-action"]:checked').value;
+                    procesarEscaneo(decodedText, parseInt(accion));
+                },
+                (errorMessage) => {
+                    // Errores de escaneo de fotograma (se ignoran para que siga buscando)
+                }
+            ).catch(err => {
+                alert("No se pudo acceder a la cámara. Asegúrate de dar permisos HTTPS o de navegador.");
+                detenerScanner();
+            });
+        }
+
+
+        function detenerScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById('reader').innerHTML = "";
+                    document.querySelector('#scanner-section .btn').style.display = 'inline-block';
+                    document.getElementById('btn-detener').style.display = 'none';
+                }).catch(err => console.log(err));
+            }
+        }
+
+
+        function procesarEscaneo(codigoID, cantidad) {
+            let prod = todosLosProductos.find(p => String(p.ID) === String(codigoID));
+            const resultadoTxt = document.getElementById('scan-result');
+            
+            if (!prod) {
+                resultadoTxt.style.color = '#e74c3c';
+                resultadoTxt.innerText = `Código detectado (${codigoID}): Producto no encontrado en la base.`;
+                return;
+            }
+
+
+            resultadoTxt.style.color = 'var(--azul-glaciar)';
+            resultadoTxt.innerText = `¡Detectado: ${prod.Producto} (${prod.Color})! Actualizando...`;
+            
+            modificarStock(prod.ID, cantidad);
+        }
+
+
+        function modificarStock(id, cantidad) {
+            let stockElement = document.getElementById('stock-' + id);
+            if (!stockElement) return;
+
+
+            let stockActual = parseInt(stockElement.innerText);
+            let nuevoStock = stockActual + cantidad;
+            
+            if(nuevoStock >= 0) {
+                stockElement.innerText = nuevoStock;
+                stockElement.style.color = '#39B1DC'; 
+
+
+                let prod = todosLosProductos.find(p => p.ID == id);
+                if(prod) prod.Stock = nuevoStock;
+
+
+                fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'update', id: id, cantidad: cantidad }),
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        stockElement.style.color = '#040407'; 
+                    }
+                })
+                .catch(error => {
+                    alert("Hubo un error al actualizar la base de datos.");
+                    stockElement.innerText = stockActual; 
+                    stockElement.style.color = '#040407';
+                    if(prod) prod.Stock = stockActual; 
+                });
+            }
+        }
+
+
+        function agregarNuevoProducto() {
+            const idCustom = document.getElementById('new-id').value;
+            const cat = document.getElementById('new-categoria').value;
+            const prod = document.getElementById('new-producto').value;
+            const col = document.getElementById('new-color').value || 'N/A';
+            const stk = document.getElementById('new-stock').value;
+            const pcompra = document.getElementById('new-pcompra').value || 0;
+            const pventa = document.getElementById('new-pventa').value || 0;
+
+
+            if(!idCustom || !cat || !prod || stk === '') {
+                alert("Por favor completá el Código (ID), categoría, producto y stock inicial.");
+                return;
+            }
+
+
+            const btn = document.getElementById('btn-add-prod');
+            btn.innerText = "Guardando...";
+            btn.disabled = true;
+
+
+            fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    action: 'add', 
+                    idCustom: idCustom,
+                    categoria: cat, 
+                    producto: prod, 
+                    color: col, 
+                    stock: stk, 
+                    precioCompra: pcompra, 
+                    precioVenta: pventa 
+                }),
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    document.getElementById('new-id').value = '';
+                    document.getElementById('new-categoria').value = '';
+                    document.getElementById('new-producto').value = '';
+                    document.getElementById('new-color').value = '';
+                    document.getElementById('new-stock').value = '';
+                    document.getElementById('new-pcompra').value = '';
+                    document.getElementById('new-pventa').value = '';
+                    
+                    cargarDatos(); 
+                }
+            })
+            .catch(error => {
+                alert("Hubo un error al guardar el producto.");
+            })
+            .finally(() => {
+                btn.innerText = "+ Guardar Producto";
+                btn.disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>
